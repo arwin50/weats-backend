@@ -107,7 +107,7 @@ INSTALLED_APPS = [
 
     'map',
     'user',
-    
+    'suggestions',
 ]
 
 MIDDLEWARE = [
