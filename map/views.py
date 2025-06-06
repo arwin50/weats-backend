@@ -6,8 +6,6 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from google import genai
 from google.genai.types import HttpOptions
-from suggestions.models import Prompt, Location, Suggestion
-from django.utils import timezone
 
 vertex_location = os.getenv("VERTEX_LOCATION")
 project_id = os.getenv("VERTEX_PROJECT_ID")
@@ -21,63 +19,29 @@ PLACES_API_URL = "https://places.googleapis.com/v1/places:searchText"
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-def get_or_create_prompt(data):
-    prompt, created = Prompt.objects.get_or_create(
-        price=data['price'],
-        food_preference=data['food_preference'],
-        dietary_preference=data['dietary_preference'],
-        lat=data['lat'],
-        lng=data['lng']
-    )
-    return prompt
-
 def filter_restaurants_with_deepseek(restaurants: list, preferences: dict) -> list:
     """Filter restaurants using DeepSeek LLM based on user preferences."""
     try:
         if len(restaurants) <= MAX_FINAL_RESULTS:
             for i, restaurant in enumerate(restaurants, 1):
                 restaurant["description"] = f"A {restaurant.get('types', ['restaurant'])[0].replace('_', ' ').title()} in {restaurant.get('address', 'the area')}."
-                restaurant["recommendation_reason"] = f"Selected based on your preferences for {preferences.get('food_preference', 'any cuisine')} and {preferences.get('dietary_preference', 'any dietary preference')}."
+                restaurant["recommendation_reason"] = f"Selected based on your preferences for {preferences.get('cuisine_type', 'any cuisine')} and {preferences.get('dietary_preference', 'any dietary preference')}."
                 restaurant["rank"] = i
             return restaurants
 
         # Extract preferences
-        food_preference = preferences.get("food_preference", "Surprise me, Choosee!")
+        cuisine_type = preferences.get("cuisine_type", "Surprise me, Choosee!")
         dietary_pref = preferences.get("dietary_preference", "Not choosy atm!")
-        
-        def map_price_to_level(peso):
-            if peso <= 0:
-                return 0
-            elif peso <= 150:
-                return 1
-            elif peso <= 300:
-                return 2
-            elif peso <= 600:
-                return 3
-            else:
-                return 4
-
-        # Map string levels from the restaurant data
-        STRING_TO_LEVEL = {
-            "PRICE_LEVEL_FREE": 0,
-            "PRICE_LEVEL_INEXPENSIVE": 1,
-            "PRICE_LEVEL_MODERATE": 2,
-            "PRICE_LEVEL_EXPENSIVE": 3,
-            "PRICE_LEVEL_VERY_EXPENSIVE": 4
-        }
-
-        # Convert preference price (in pesos) to price level
-        raw_price = preferences.get("price", 1000)
-        price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
+        max_price = preferences.get("max_price", 4)
 
         # Construct prompt
         prompt = f"""
 You are a restaurant recommendation engine. Your task is to analyze a list of restaurants and select the TOP 10 that best match the user's preferences.
 
 ## User Preferences
-- Cuisine Type: {food_preference}
+- Cuisine Type: {cuisine_type}
 - Dietary Preference: {dietary_pref}
-- Max Price Level: {price} (1=budget, 2=moderate, 3=expensive, 4=very expensive)
+- Max Price Level: {max_price} (1=budget, 2=moderate, 3=expensive, 4=very expensive)
 
 ## Restaurant Candidates
 {json.dumps(restaurants, indent=2)}
@@ -163,14 +127,6 @@ def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> lis
     expanded_search = False
     current_radius = SEARCH_RADIUS
     search_attempt = 0  # Track search attempts
-
-    PRICE_LEVEL_MAP = {
-    "PRICE_LEVEL_FREE": 0,
-    "PRICE_LEVEL_INEXPENSIVE": 1,
-    "PRICE_LEVEL_MODERATE": 2,
-    "PRICE_LEVEL_EXPENSIVE": 3,
-    "PRICE_LEVEL_VERY_EXPENSIVE": 4
-    }
     
     while len(restaurants) < MAX_SEARCH_RESULTS:
         if page_token:
@@ -186,12 +142,12 @@ def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> lis
             # Build text query based on search attempt
             if search_attempt == 0:
                 # First attempt: Try specific cuisine and dietary preference
-                cuisine = preferences.get("food_preference", "")
+                cuisine = preferences.get("cuisine_type", "")
                 dietary = preferences.get("dietary_preference", "")
                 text_query = f"{cuisine} {dietary} restaurant PH" if cuisine or dietary else "restaurant PH"
             elif search_attempt == 1:
                 # Second attempt: Try just cuisine type
-                cuisine = preferences.get("food_preference", "")
+                cuisine = preferences.get("cuisine_type", "")
                 text_query = f"{cuisine} restaurant PH" if cuisine else "restaurant PH"
             else:
                 # Final attempt: General restaurant search
@@ -222,9 +178,6 @@ def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> lis
             print(f"Found {len(places)} places in this page")
 
             for place in places:
-                raw_price_level = place.get("priceLevel")
-                price_level = PRICE_LEVEL_MAP.get(raw_price_level, None)
-
                 restaurant = {
                     "name": place.get("displayName", {}).get("text"),
                     "address": place.get("formattedAddress"),
@@ -232,7 +185,7 @@ def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> lis
                     "lng": place.get("location", {}).get("longitude"),
                     "rating": place.get("rating"),
                     "user_ratings_total": place.get("userRatingCount"),
-                    "price_level": price_level,
+                    "price_level": place.get("priceLevel"),
                     "types": place.get("types", [])
                 }
                 restaurants.append(restaurant)
@@ -260,7 +213,7 @@ def nearby_restaurants(request):
     print(request.data)
     lat = request.data.get("lat")
     lng = request.data.get("lng")
-    preferences = request.data.get("preferences", {}) 
+    preferences = request.data.get("preferences", {})  # Get user preferences
 
     if not lat or not lng:
         return Response({"error": "Missing latitude or longitude"}, status=400)
@@ -304,50 +257,16 @@ def nearby_restaurants(request):
             if len(all_restaurants) >= MAX_SEARCH_RESULTS:
                 break
 
+        # Sort by rating (highest first)
         all_restaurants.sort(key=lambda x: x.get('rating', 0) or 0, reverse=True)
         
+        # Filter restaurants based on user preferences using Gemini
         if preferences:
             filtered_restaurants = filter_restaurants_with_deepseek(all_restaurants, preferences)
         else:
             filtered_restaurants = all_restaurants[:MAX_FINAL_RESULTS]
-    
-        prompt = get_or_create_prompt({
-            "lat": lat,
-            "lng": lng,
-            "food_preference": preferences.get("food_preference"),
-            "dietary_preference": preferences.get("dietary_preference"),
-            "price": preferences.get("price")
-        })
-
-        location_objects = []
-        for rest in filtered_restaurants:
-            lat = rest.get("lat")
-            lng = rest.get("lng")
-
-            location, created = Location.objects.get_or_create(
-                lat=lat,
-                lng=lng,
-                defaults={
-                    "name": rest["name"],
-                    "address": rest["address"],
-                    "rating": rest.get("rating", 0),
-                    "user_ratings_total": rest.get("user_ratings_total", 0),
-                    "price_level": rest.get("price_level", 1),
-                    "types": rest.get("types", []),
-                    "description": rest.get("description", ""),
-                    "recommendation_reason": rest.get("recommendation_reason", "")
-                }
-            )
-            location_objects.append(location)
-
-
-        suggestion = Suggestion.objects.create(prompt=prompt)
-        suggestion.locations.set(location_objects[:MAX_FINAL_RESULTS])  # max 10
-        suggestion.save()
-
+        
         return Response({
-            "prompt_id": prompt.id,
-            "suggestion_id": suggestion.id,
             "restaurants": filtered_restaurants,
             "count": len(filtered_restaurants)
         })
