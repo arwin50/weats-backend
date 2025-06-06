@@ -1,12 +1,9 @@
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from .views import PromptViewSet, LocationViewSet, SuggestionViewSet
 
-router = DefaultRouter()
-router.register(r'prompts', PromptViewSet)
-router.register(r'locations', LocationViewSet)
-router.register(r'suggestions', SuggestionViewSet)
 
 urlpatterns = [
-    path('', include(router.urls)),
+    path('prompts/', PromptViewSet.as_view, name="prompt-view"),
+    path('locations/',LocationViewSet.as_view, name="location-view"),
+    path('suggestions/',SuggestionViewSet.as_view, name="suggestion-view")
 ]
