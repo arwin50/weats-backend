@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
 
-    'map'
+    'map',
+    'suggestions',
 ]
 
 MIDDLEWARE = [
