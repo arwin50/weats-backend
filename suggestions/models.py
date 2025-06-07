@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings  # Recommended for referencing AUTH_USER_MODEL
 from django.core.exceptions import ValidationError
 
 class Location(models.Model):
@@ -12,6 +13,7 @@ class Location(models.Model):
     types = models.JSONField(null=True, blank=True)  # stores array of strings
     description = models.TextField(null=True, blank=True)
     recommendation_reason = models.TextField(null=True, blank=True)
+    photo_url = models.URLField(max_length=500, null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -27,12 +29,19 @@ class Prompt(models.Model):
         return f"{self.food_preference} - {self.dietary_preference}"
 
 class Suggestion(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="suggestions",
+        null=False,
+    )
     prompt = models.ForeignKey(Prompt, on_delete=models.CASCADE, related_name='suggestions')
     locations = models.ManyToManyField(Location, related_name='suggestions')
     date_created = models.DateTimeField(auto_now_add=True)
     date_updated = models.DateTimeField(auto_now=True)
 
-    def clean(self):
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
         if self.locations.count() > 10:
             raise ValidationError("A suggestion cannot have more than 10 locations.")
 
