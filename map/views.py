@@ -317,9 +317,9 @@ def nearby_restaurants(request):
         prompt = get_or_create_prompt({
             "lat": lat,
             "lng": lng,
-            "food_preference": preferences.get("food_preference"),
-            "dietary_preference": preferences.get("dietary_preference"),
-            "price": preferences.get("price")
+            "food_preference": preferences.get("food_preference", "any"),
+            "dietary_preference": preferences.get("dietary_preference", "any"),
+            "max_price": preferences.get("max_price", 0)
         })
 
         location_objects = []
