@@ -92,7 +92,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         }
 
         # Convert preference price (in pesos) to price level
-        raw_price = preferences.get("max_price", 1000)
+        raw_price = preferences.get("price", 1000)
         price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
 
         # Construct prompt
@@ -123,6 +123,8 @@ Each restaurant must preserve its original fields and include the following addi
 
 **Only output the final JSON array. Do not include any explanations, markdown, or additional text.**
 """
+
+        print(preferences)
 
         # Send request to Vertex AI
         response = client.models.generate_content(
@@ -319,47 +321,62 @@ def nearby_restaurants(request):
             "lng": lng,
             "food_preference": preferences.get("food_preference", "any"),
             "dietary_preference": preferences.get("dietary_preference", "any"),
-            "max_price": preferences.get("max_price", 0)
+            "price": preferences.get("price", 0)
         })
 
-        location_objects = []
+        location_dicts = []
         for rest in filtered_restaurants:
-            lat = rest.get("lat")
-            lng = rest.get("lng")
-
-            # Get the first photo URL if available
             photo_url = None
             if rest.get("photos") and len(rest["photos"]) > 0:
                 photo_url = get_photo_url(rest["photos"][0].get("name"))
 
-            location, created = Location.objects.get_or_create(
-                lat=lat,
-                lng=lng,
-                defaults={
-                    "name": rest["name"],
-                    "address": rest["address"],
-                    "rating": rest.get("rating", 0),
-                    "user_ratings_total": rest.get("user_ratings_total", 0),
-                    "price_level": rest.get("price_level", 1),
-                    "types": rest.get("types", []),
-                    "description": rest.get("description", ""),
-                    "recommendation_reason": rest.get("recommendation_reason", "")
-                }
+            location = Location(
+                name=rest["name"],
+                address=rest["address"],
+                lat=rest["lat"],
+                lng=rest["lng"],
+                rating=rest.get("rating", 0),
+                user_ratings_total=rest.get("user_ratings_total", 0),
+                price_level=rest.get("price_level", 1),
+                types=rest.get("types", []),
+                description=rest.get("description", ""),
+                recommendation_reason=rest.get("recommendation_reason", ""),
+                photo_url=photo_url
             )
-            location_objects.append(location)
 
-            # Add photo URL to the restaurant data
-            rest["photo_url"] = photo_url
+            location_dicts.append({
+                "name": location.name,
+                "address": location.address,
+                "lat": location.lat,
+                "lng": location.lng,
+                "rating": location.rating,
+                "user_ratings_total": location.user_ratings_total,
+                "price_level": location.price_level,
+                "types": location.types,
+                "description": location.description,
+                "recommendation_reason": location.recommendation_reason,
+                "photo_url": photo_url,
+            })
 
-        suggestion = Suggestion.objects.create(prompt=prompt)
-        suggestion.locations.set(location_objects[:MAX_FINAL_RESULTS])  # max 10
-        suggestion.save()
+            print("MEOW: ", location.photo_url)
+
+        suggestion_data = {
+            "user": request.user.username if request.user.is_authenticated else None,
+            "prompt": {
+                "lat": prompt.lat,
+                "lng": prompt.lng,
+                "food_preference": prompt.food_preference,
+                "dietary_preference": prompt.dietary_preference,
+                "price": prompt.price
+            },
+            "locations": location_dicts
+        }
 
         return Response({
             "prompt_id": prompt.id,
-            "suggestion_id": suggestion.id,
-            "restaurants": filtered_restaurants,
-            "count": len(filtered_restaurants)
+            "suggestion_id": suggestion_data,
+            "restaurants": location_dicts,
+            "count": len(location_dicts)
         })
         
     except Exception as e:

@@ -35,7 +35,9 @@ class SuggestionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         locations = validated_data.pop('locations', [])
-        suggestion = Suggestion.objects.create(**validated_data)
+        user = self.context['request'].user
+
+        suggestion = Suggestion.objects.create(user=user, **validated_data)
         suggestion.locations.set(locations)
         return suggestion
 
