@@ -5,21 +5,39 @@ import json
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from google import genai
-from google.genai.types import HttpOptions
+from google.genai import types
 from suggestions.models import Prompt, Location, Suggestion
 from django.utils import timezone
 
-vertex_location = os.getenv("VERTEX_LOCATION")
+vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")  # Default to us-central1 if not set
 project_id = os.getenv("VERTEX_PROJECT_ID")
-use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
+use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "True")
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
 MAX_SEARCH_RESULTS = 50  # Get more results for filtering
 MAX_FINAL_RESULTS = 10   # Final number of recommendations
-SEARCH_RADIUS = 1000  # meters
-OFFSET_DISTANCE = 2000  # meters to offset for adjacent searches
+SEARCH_RADIUS = 2000  # Increased radius to compensate for single search
 PLACES_API_URL = "https://places.googleapis.com/v1/places:searchText"
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+PLACES_PHOTO_URL = "https://places.googleapis.com/v1/{photo_name}/media"
+
+# Initialize Vertex AI client
+client = genai.Client(
+    vertexai=True,
+    project=project_id,
+    location=vertex_location,
+)
+
+def get_photo_url(photo_name, max_width=400, max_height=400):
+    """Get the URL for a place photo."""
+    if not photo_name:
+        return None
+    
+    url = PLACES_PHOTO_URL.format(photo_name=photo_name)
+    params = {
+        'key': GOOGLE_PLACES_API_KEY,
+        'maxWidthPx': max_width,
+        'maxHeightPx': max_height
+    }
+    return f"{url}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
 
 def get_or_create_prompt(data):
     # Set default values for required fields
@@ -38,8 +56,8 @@ def get_or_create_prompt(data):
     )
     return prompt
 
-def filter_restaurants_with_deepseek(restaurants: list, preferences: dict) -> list:
-    """Filter restaurants using DeepSeek LLM based on user preferences."""
+def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list:
+    """Filter restaurants using Vertex AI Gemini model based on user preferences."""
     try:
         if len(restaurants) <= MAX_FINAL_RESULTS:
             for i, restaurant in enumerate(restaurants, 1):
@@ -106,77 +124,77 @@ Each restaurant must preserve its original fields and include the following addi
 **Only output the final JSON array. Do not include any explanations, markdown, or additional text.**
 """
 
-        # Prepare request to DeepSeek
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
-        }
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": "You are a helpful and intelligent restaurant recommendation assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.7
-        }
+        # Send request to Vertex AI
+        response = client.models.generate_content(
+            model="gemini-2.5-pro-preview-05-06",
+            contents=prompt
+        )
 
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-        if response.status_code != 200:
-            print(f"DeepSeek API error: {response.text}")
-            raise Exception("DeepSeek API call failed")
+        # Log the raw response for debugging
+        print(f"Raw Vertex AI response: {response.text}")
 
-        content = response.json()["choices"][0]["message"]["content"]
-
-        # Clean up and parse JSON
-        content = content.strip()
+        # Parse the response
+        content = response.text.strip()
+        
+        # Handle potential markdown formatting
         if content.startswith("```json"):
             content = content[7:]
         if content.endswith("```"):
             content = content[:-3]
+        
+        # Clean up any potential whitespace
+        content = content.strip()
+        
+        # Log the cleaned content for debugging
+        print(f"Cleaned content before JSON parsing: {content}")
 
-        filtered_restaurants = json.loads(content)
+        if not content:
+            raise ValueError("Empty response from Vertex AI")
+
+        try:
+            filtered_restaurants = json.loads(content)
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error: {str(e)}")
+            print(f"Content that failed to parse: {content}")
+            raise
+
+        # Validate the response structure
+        if not isinstance(filtered_restaurants, list):
+            raise ValueError(f"Expected list but got {type(filtered_restaurants)}")
+        
+        if len(filtered_restaurants) > MAX_FINAL_RESULTS:
+            filtered_restaurants = filtered_restaurants[:MAX_FINAL_RESULTS]
 
         # Sort by rank and return
         filtered_restaurants.sort(key=lambda x: x.get("rank", 10))
-        return filtered_restaurants[:MAX_FINAL_RESULTS]
+        return filtered_restaurants
 
     except Exception as e:
-        print(f"Error in DeepSeek filtering: {str(e)}")
+        print(f"Error in Vertex AI filtering: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        
+        # Fallback to basic filtering
         for i, restaurant in enumerate(restaurants[:MAX_FINAL_RESULTS], 1):
-            restaurant["description"] = "Description not available"
-            restaurant["recommendation_reason"] = "Recommendation reason not available"
+            restaurant["description"] = f"A {restaurant.get('types', ['restaurant'])[0].replace('_', ' ').title()} in {restaurant.get('address', 'the area')}."
+            restaurant["recommendation_reason"] = f"Selected based on your preferences for {preferences.get('food_preference', 'any cuisine')} and {preferences.get('dietary_preference', 'any dietary preference')}."
             restaurant["rank"] = i
         return restaurants[:MAX_FINAL_RESULTS]
 
-def get_search_locations(lat: float, lng: float) -> list:
-    """Generate 5 search locations: center, north, south, east, west."""
-    # Approximate conversion of meters to degrees (roughly)
-    # 1 degree ≈ 111,000 meters at the equator
-    lat_offset = OFFSET_DISTANCE / 111000
-    lng_offset = OFFSET_DISTANCE / (111000 * abs(lat))
-    
-    return [
-        {"name": "center", "lat": lat, "lng": lng},
-        {"name": "north", "lat": lat + lat_offset, "lng": lng},
-        {"name": "south", "lat": lat - lat_offset, "lng": lng},
-        {"name": "east", "lat": lat, "lng": lng + lng_offset},
-        {"name": "west", "lat": lat, "lng": lng - lng_offset}
-    ]
-
-def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> list:
+def search_restaurants(lat: float, lng: float, headers: dict, preferences: dict) -> list:
     """Search for restaurants in a specific area."""
     restaurants = []
     page_token = None
-    expanded_search = False
+    search_attempt = 0
     current_radius = SEARCH_RADIUS
-    search_attempt = 0  # Track search attempts
 
     PRICE_LEVEL_MAP = {
-    "PRICE_LEVEL_FREE": 0,
-    "PRICE_LEVEL_INEXPENSIVE": 1,
-    "PRICE_LEVEL_MODERATE": 2,
-    "PRICE_LEVEL_EXPENSIVE": 3,
-    "PRICE_LEVEL_VERY_EXPENSIVE": 4
+        "PRICE_LEVEL_FREE": 0,
+        "PRICE_LEVEL_INEXPENSIVE": 1,
+        "PRICE_LEVEL_MODERATE": 2,
+        "PRICE_LEVEL_EXPENSIVE": 3,
+        "PRICE_LEVEL_VERY_EXPENSIVE": 4
     }
     
     while len(restaurants) < MAX_SEARCH_RESULTS:
@@ -184,12 +202,6 @@ def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> lis
             body = {"pageToken": page_token}
             time.sleep(2)  # Wait before using the token
         else:
-            # If we have less than 10 results and haven't expanded search yet, double the radius
-            if len(restaurants) < 10 and not expanded_search:
-                current_radius = SEARCH_RADIUS * 2
-                expanded_search = True
-                print(f"Expanding search radius to {current_radius}m due to low results")
-            
             # Build text query based on search attempt
             if search_attempt == 0:
                 # First attempt: Try specific cuisine and dietary preference
@@ -221,7 +233,7 @@ def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> lis
             print(f"Response status: {response.status_code}")
 
             if response.status_code != 200:
-                print(f"Error in area {lat}, {lng}: {response.text}")
+                print(f"Error in search: {response.text}")
                 break
 
             data = response.json()
@@ -240,7 +252,8 @@ def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> lis
                     "rating": place.get("rating"),
                     "user_ratings_total": place.get("userRatingCount"),
                     "price_level": price_level,
-                    "types": place.get("types", [])
+                    "types": place.get("types", []),
+                    "photos": place.get("photos", [])
                 }
                 restaurants.append(restaurant)
 
@@ -254,10 +267,10 @@ def search_area(lat: float, lng: float, headers: dict, preferences: dict) -> lis
                     continue
                 break
 
-            print(f"Total restaurants in this area: {len(restaurants)}")
+            print(f"Total restaurants found: {len(restaurants)}")
             
         except Exception as e:
-            print(f"Error searching area: {str(e)}")
+            print(f"Error searching: {str(e)}")
             break
             
     return restaurants
@@ -283,38 +296,21 @@ def nearby_restaurants(request):
         "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
         "X-Goog-FieldMask": (
             "places.displayName,places.formattedAddress,places.location,"
-            "places.rating,places.userRatingCount,places.priceLevel,places.types"
+            "places.rating,places.userRatingCount,places.priceLevel,places.types,"
+            "places.photos"
         )
     }
 
     try:
-        # Get all search locations
-        search_locations = get_search_locations(lat, lng)
-        all_restaurants = []
-        seen_places = set()  # To track unique places
-
-        # Search each area
-        for location in search_locations:
-            print(f"\nSearching {location['name']} area...")
-            area_restaurants = search_area(location['lat'], location['lng'], headers, preferences)
-            
-            # Add only unique restaurants
-            for restaurant in area_restaurants:
-                # Use name and address as unique identifier
-                place_id = f"{restaurant['name']}_{restaurant['address']}"
-                if place_id not in seen_places:
-                    seen_places.add(place_id)
-                    all_restaurants.append(restaurant)
-            
-            print(f"Total unique restaurants so far: {len(all_restaurants)}")
-            
-            if len(all_restaurants) >= MAX_SEARCH_RESULTS:
-                break
-
+        # Search for restaurants in the center location
+        all_restaurants = search_restaurants(lat, lng, headers, preferences)
+        
+        # Sort by rating
         all_restaurants.sort(key=lambda x: x.get('rating', 0) or 0, reverse=True)
         
+        # Filter restaurants based on preferences
         if preferences:
-            filtered_restaurants = filter_restaurants_with_deepseek(all_restaurants, preferences)
+            filtered_restaurants = filter_restaurants_with_vertex(all_restaurants, preferences)
         else:
             filtered_restaurants = all_restaurants[:MAX_FINAL_RESULTS]
     
@@ -330,6 +326,11 @@ def nearby_restaurants(request):
         for rest in filtered_restaurants:
             lat = rest.get("lat")
             lng = rest.get("lng")
+
+            # Get the first photo URL if available
+            photo_url = None
+            if rest.get("photos") and len(rest["photos"]) > 0:
+                photo_url = get_photo_url(rest["photos"][0].get("name"))
 
             location, created = Location.objects.get_or_create(
                 lat=lat,
@@ -347,6 +348,8 @@ def nearby_restaurants(request):
             )
             location_objects.append(location)
 
+            # Add photo URL to the restaurant data
+            rest["photo_url"] = photo_url
 
         suggestion = Suggestion.objects.create(prompt=prompt)
         suggestion.locations.set(location_objects[:MAX_FINAL_RESULTS])  # max 10
