@@ -5,6 +5,9 @@ __pycache__/
 *.pyd
 *.pyc
 
+**/migrations/*.py
+**/migrations/*.pyc
+
 # Virtual environment
 venv/
 env/
