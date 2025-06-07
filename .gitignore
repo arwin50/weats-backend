@@ -45,4 +45,4 @@ Pipfile.lock
 
 # Migrations (optional, if you want to e
 
-choosee-461610-f105153b5594.json
+credentials/
