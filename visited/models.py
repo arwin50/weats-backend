@@ -13,7 +13,7 @@ class VisitedLocation(models.Model):
     user_ratings_total = models.IntegerField(null=True, blank=True)
     price_level = models.IntegerField(null=True, blank=True)
     types = models.JSONField(null=True, blank=True)  # stores array of strings
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True)   
     recommendation_reason = models.TextField(null=True, blank=True)
     photo_url = models.URLField(null=True, blank=True)
     date_visited = models.DateTimeField(auto_now_add=True)
