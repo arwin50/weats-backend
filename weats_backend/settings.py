@@ -32,7 +32,36 @@ DEBUG = os.getenv("DEBUG")
 
 ALLOWED_HOSTS = ['*']
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:3000',
+    'https://localhost:3000',
+]
+    
 # Custom user model
 AUTH_USER_MODEL = 'user.User'
 
@@ -50,7 +79,7 @@ REST_FRAMEWORK = {
 
 # JWT settings
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=20),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": False,
@@ -107,6 +136,7 @@ INSTALLED_APPS = [
     'map',
     'user',
     'suggestions',
+    'visited'
 ]
 
 MIDDLEWARE = [

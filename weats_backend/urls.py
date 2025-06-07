@@ -21,5 +21,6 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/maps/', include("map.urls")),
     path('api/suggestions/', include("suggestions.urls")),
-    path('api/users/', include("user.urls"))
+    path('api/users/', include("user.urls")),
+    path('api/visited/',include("visited.urls"))
 ]
