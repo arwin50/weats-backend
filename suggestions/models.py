@@ -33,14 +33,15 @@ class Suggestion(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="suggestions",
-        null=False
+        null=False,
     )
     prompt = models.ForeignKey(Prompt, on_delete=models.CASCADE, related_name='suggestions')
     locations = models.ManyToManyField(Location, related_name='suggestions')
     date_created = models.DateTimeField(auto_now_add=True)
     date_updated = models.DateTimeField(auto_now=True)
 
-    def clean(self):
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
         if self.locations.count() > 10:
             raise ValidationError("A suggestion cannot have more than 10 locations.")
 
