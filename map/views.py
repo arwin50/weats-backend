@@ -2,6 +2,7 @@ import os
 import requests
 import time
 import json
+import re
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from google import genai
@@ -150,6 +151,7 @@ Each restaurant must preserve its original fields.
         print(f"Extracted JSON content:\n{json_string}")
 
         try:
+            json_string = re.sub(r",\s*([\]}])", r"\1", json_string)
             filtered_restaurants = json.loads(json_string)
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {str(e)}")
