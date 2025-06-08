@@ -1,4 +1,5 @@
 from rest_framework.response import Response
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -79,6 +80,7 @@ def logout_view(request):
 
     return Response({"message": "Successfully logged out"}, status=status.HTTP_200_OK)
 
+@csrf_exempt
 @api_view(["POST"])
 def refresh_jwt(request):
     refresh_token = request.data.get("refresh")
@@ -88,7 +90,7 @@ def refresh_jwt(request):
             {"error": "Refresh token is required."},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+        
     try:
         refresh = RefreshToken(refresh_token)
         new_access_token = str(refresh.access_token)
