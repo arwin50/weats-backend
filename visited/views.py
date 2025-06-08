@@ -5,6 +5,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import VisitedLocation
 from .serializers import VisitedLocationSerializer
+from django.db.models import Count
+from datetime import datetime, timedelta
 
 class VisitedLocationViewSet(viewsets.ModelViewSet):
     serializer_class = VisitedLocationSerializer
@@ -16,12 +18,43 @@ class VisitedLocationViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
+    @action(detail=False, methods=['get'])
+    def recent_visits(self, request):
+        """
+        Get recently visited locations with visit counts and statistics.
+        """
+        # Get time range from query params (default to last 30 days)
+        days = int(request.query_params.get('days', 30))
+        start_date = datetime.now() - timedelta(days=days)
+
+        # Get visited locations in the time range
+        recent_visits = VisitedLocation.objects.filter(
+            user=request.user,
+            date_visited__gte=start_date
+        ).order_by('-date_visited')
+
+        # Get visit statistics
+        total_visits = recent_visits.count()
+        visits_by_day = recent_visits.extra(
+            select={'day': 'date(date_visited)'}
+        ).values('day').annotate(count=Count('id')).order_by('day')
+
+        # Get most visited locations
+        most_visited = recent_visits.values('name', 'address').annotate(
+            visit_count=Count('id')
+        ).order_by('-visit_count')[:5]
+
+        # Serialize the data
+        serializer = self.get_serializer(recent_visits, many=True)
+
         return Response({
-            'visited_locations': serializer.data,
-            'count': queryset.count()
+            'recent_visits': serializer.data,
+            'statistics': {
+                'total_visits': total_visits,
+                'visits_by_day': list(visits_by_day),
+                'most_visited': list(most_visited),
+                'time_range': f'Last {days} days'
+            }
         })
 
     @action(detail=False, methods=['post'])
