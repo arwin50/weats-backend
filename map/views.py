@@ -153,13 +153,30 @@ Each restaurant must preserve its original fields.
 
         try:
             # Clean up common JSON formatting issues
+            # Remove control characters
+            json_string = ''.join(char for char in json_string if ord(char) >= 32 or char in '\n\r\t')
+            
             # Remove trailing commas before closing brackets
             json_string = re.sub(r',\s*([}\]])', r'\1', json_string)
+            
             # Remove any comments
             json_string = re.sub(r'//.*?$', '', json_string, flags=re.MULTILINE)
+            
             # Remove any whitespace between brackets
             json_string = re.sub(r'\[\s*\]', '[]', json_string)
             json_string = re.sub(r'{\s*}', '{}', json_string)
+            
+            # Remove any non-printable characters
+            json_string = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', json_string)
+            
+            # Remove any BOM characters
+            json_string = json_string.replace('\ufeff', '')
+            
+            # Remove any null bytes
+            json_string = json_string.replace('\0', '')
+            
+            # Remove any invalid escape sequences
+            json_string = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_string)
             
             filtered_restaurants = json.loads(json_string)
         except json.JSONDecodeError as e:
