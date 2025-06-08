@@ -120,7 +120,7 @@ You are a restaurant recommendation engine. Your task is to analyze a list of re
 Return a **JSON array of exactly 10 restaurants**, ranked from best match to least match.  
 Each restaurant must preserve its original fields.
 
-**Only return valid JSON. Do not include explanations, markdown, or comments.**
+**IMPORTANT: The output should be a valid JSON. Do not include explanations, markdown, or comments.**
 """
 
         print("Vertex prompt preferences:", preferences)
