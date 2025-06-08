@@ -79,7 +79,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         # Extract preferences
         food_preference = preferences.get("food_preference", "Surprise me, Choosee!")
         dietary_pref = preferences.get("dietary_preference", "Not choosy atm!")
-        
+
         def map_price_to_level(peso):
             if peso <= 0:
                 return 0
@@ -92,12 +92,11 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
             else:
                 return 4
 
-     
         # Convert preference price (in pesos) to price level
         raw_price = preferences.get("price", 1000)
         price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
 
-        # Construct prompt
+        # Construct the Gemini prompt
         prompt = f"""
 You are a restaurant recommendation engine. Your task is to analyze a list of restaurants and select the TOP 10 that best match the user's preferences.
 
@@ -120,49 +119,47 @@ You are a restaurant recommendation engine. Your task is to analyze a list of re
 Return a **JSON array of exactly 10 restaurants**, ranked from best match to least match.  
 Each restaurant must preserve its original fields.
 
-**Only output the final JSON array. Do not include any explanations, markdown, or additional text.**
+**Only return valid JSON. Do not include explanations, markdown, or comments.**
 """
 
-        print(preferences)
+        print("Vertex prompt preferences:", preferences)
 
-        # Send request to Vertex AI
+        # Send the prompt to Vertex AI
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=prompt
         )
 
-        # Log the raw response for debugging
-        print(f"Raw Vertex AI response: {response.text}")
+        raw_content = response.text.strip()
+        print(f"Raw Vertex AI response:\n{raw_content}")
 
-        # Parse the response
-        content = response.text.strip()
-        
-        # Handle potential markdown formatting
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.endswith("```"):
-            content = content[:-3]
-        
-        # Clean up any potential whitespace
-        content = content.strip()
-        
-        # Log the cleaned content for debugging
-        print(f"Cleaned content before JSON parsing: {content}")
+        # Clean response: remove markdown block markers and trim whitespace
+        if raw_content.startswith("```json"):
+            raw_content = raw_content[7:]
+        if raw_content.endswith("```"):
+            raw_content = raw_content[:-3]
+        raw_content = raw_content.strip()
 
-        if not content:
-            raise ValueError("Empty response from Vertex AI")
+        # Find JSON array start and end positions
+        start_index = raw_content.find('[')
+        end_index = raw_content.rfind(']')
+        if start_index == -1 or end_index == -1:
+            raise ValueError("Invalid JSON format: could not locate JSON array brackets.")
+
+        json_string = raw_content[start_index:end_index + 1]
+        print(f"Extracted JSON content:\n{json_string}")
 
         try:
-            filtered_restaurants = json.loads(content)
+            filtered_restaurants = json.loads(json_string)
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {str(e)}")
-            print(f"Content that failed to parse: {content}")
+            print(f"Failed content:\n{json_string}")
             raise
 
-        # Validate the response structure
+        # Validate structure
         if not isinstance(filtered_restaurants, list):
             raise ValueError(f"Expected list but got {type(filtered_restaurants)}")
-        
+
         if len(filtered_restaurants) > MAX_FINAL_RESULTS:
             filtered_restaurants = filtered_restaurants[:MAX_FINAL_RESULTS]
 
@@ -172,9 +169,9 @@ Each restaurant must preserve its original fields.
         print(f"Error in Vertex AI filtering: {str(e)}")
         print(f"Error type: {type(e)}")
         import traceback
-        print(f"Traceback: {traceback.format_exc()}")
-        
-        # Fallback to basic filtering
+        print("Traceback:")
+        print(traceback.format_exc())
+        # Return a fallback subset of restaurants
         return restaurants[:MAX_FINAL_RESULTS]
 
 def search_restaurants(lat: float, lng: float, headers: dict, preferences: dict) -> list:
