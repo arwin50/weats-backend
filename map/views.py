@@ -74,12 +74,19 @@ def get_or_create_prompt(data):
 def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list:
     """Filter restaurants using Vertex AI Gemini model based on user preferences."""
     try:
+        print("\n=== Starting Restaurant Filtering Process ===")
+        print(f"Total restaurants to filter: {len(restaurants)}")
+        
         if len(restaurants) <= MAX_FINAL_RESULTS:
+            print("Less than MAX_FINAL_RESULTS restaurants, returning original list")
             return restaurants
 
         # Extract preferences
         food_preference = preferences.get("food_preference", "Surprise me, Choosee!")
         dietary_pref = preferences.get("dietary_preference", "Not choosy atm!")
+        print(f"\nUser Preferences:")
+        print(f"- Cuisine: {food_preference}")
+        print(f"- Dietary: {dietary_pref}")
         
         def map_price_to_level(peso):
             if peso <= 0:
@@ -96,6 +103,13 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         # Convert preference price (in pesos) to price level
         raw_price = preferences.get("price", 1000)
         price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
+        print(f"- Max Price Level: {price} (raw price: {raw_price})")
+
+        # Create a list of restaurant names for the prompt
+        restaurant_names = [rest["name"] for rest in restaurants]
+        print(f"\nRestaurant names to rank ({len(restaurant_names)}):")
+        for i, name in enumerate(restaurant_names, 1):
+            print(f"{i}. {name}")
 
         # Construct the Gemini prompt
         prompt = f"""
@@ -107,7 +121,19 @@ You are a restaurant recommendation engine. Your task is to analyze a list of re
 - Max Price Level: {price} (1=budget, 2=moderate, 3=expensive, 4=very expensive)
 
 ## Restaurant Candidates
-{json.dumps(restaurants, indent=2)}
+{json.dumps(restaurant_names, indent=2)}
+
+## Important Instructions
+1. Analyze each restaurant's complete data including:
+   - Name
+   - Price level
+   - Rating
+   - Number of reviews
+   - Types/cuisine
+   - Any other available information
+2. Consider all this information when ranking
+3. Return ONLY the restaurant names in order of best match to least match
+4. Do not include any explanations or additional data in your response
 
 ## Ranking Criteria (in priority order)
 1. Price level must be within or below the user's budget.
@@ -117,13 +143,17 @@ You are a restaurant recommendation engine. Your task is to analyze a list of re
 5. General quality and reputation.
 
 ## Output Format
-Return a **JSON array of exactly 10 restaurants**, ranked from best match to least match.  
-Each restaurant must preserve its original fields.
+Return a JSON array of exactly 10 restaurant names, ranked from best match to least match.
 
-**IMPORTANT: The output should be a valid JSON. Do not include explanations, markdown, or comments.**
+Example format:
+["Restaurant A", "Restaurant B", "Restaurant C", ...]
+
+IMPORTANT: The output should be a valid JSON array of strings. Do not include explanations, markdown, or comments.
 """
 
-        print("Vertex prompt preferences:", preferences)
+        print("\nSending prompt to Vertex AI...")
+        print("Prompt:")
+        print(prompt)
 
         # Send the prompt to Vertex AI
         response = client.models.generate_content(
@@ -132,7 +162,8 @@ Each restaurant must preserve its original fields.
         )
 
         raw_content = response.text.strip()
-        print(f"Raw Vertex AI response:\n{raw_content}")
+        print("\nRaw Vertex AI response:")
+        print(raw_content)
 
         # Clean response: remove markdown block markers and trim whitespace
         if raw_content.startswith("```json"):
@@ -145,85 +176,59 @@ Each restaurant must preserve its original fields.
         start_index = raw_content.find('[')
         end_index = raw_content.rfind(']')
         if start_index == -1 or end_index == -1:
+            print("\nERROR: Could not find JSON array brackets in response")
             raise ValueError("Invalid JSON format: could not locate JSON array brackets.")
 
         json_string = raw_content[start_index:end_index + 1]
-        print(f"Extracted JSON content:\n{json_string}")
+        print("\nExtracted JSON content:")
+        print(json_string)
 
         try:
-            filtered_restaurants = json.loads(json_string)
-            print(filtered_restaurants)
+            selected_names = json.loads(json_string)
+            print("\nSuccessfully parsed JSON. Selected restaurant names:")
+            for i, name in enumerate(selected_names, 1):
+                print(f"{i}. {name}")
         except json.JSONDecodeError as e:
-            print(f"JSON parsing error: {str(e)}")
+            print(f"\nERROR: JSON parsing failed: {str(e)}")
             print(f"Failed content:\n{json_string}")
             raise
 
         # Validate structure
-        if not isinstance(filtered_restaurants, list):
-            raise ValueError(f"Expected list but got {type(filtered_restaurants)}")
+        if not isinstance(selected_names, list):
+            print(f"\nERROR: Expected list but got {type(selected_names)}")
+            raise ValueError(f"Expected list but got {type(selected_names)}")
         
-        if len(filtered_restaurants) > MAX_FINAL_RESULTS:
-            filtered_restaurants = filtered_restaurants[:MAX_FINAL_RESULTS]
+        if len(selected_names) > MAX_FINAL_RESULTS:
+            print(f"\nWarning: More than {MAX_FINAL_RESULTS} restaurants selected, truncating...")
+            selected_names = selected_names[:MAX_FINAL_RESULTS]
 
-        # Validate each restaurant's schema
-        required_fields = {
-            "name": str,
-            "address": str,
-            "lat": (int, float),
-            "lng": (int, float),
-            "rating": (int, float, type(None)),
-            "user_ratings_total": (int, type(None)),
-            "price_level": (int, type(None)),
-            "types": list,
-        }
+        # Map selected names back to original restaurant data
+        print("\nMapping selected names back to original restaurant data...")
+        filtered_restaurants = []
+        for name in selected_names:
+            # Find the original restaurant data
+            original_rest = next((r for r in restaurants if r["name"] == name), None)
+            if original_rest:
+                filtered_restaurants.append(original_rest)
+                print(f"✓ Found data for: {name}")
+            else:
+                print(f"✗ Could not find data for: {name}")
 
-        validated_restaurants = []
-        for i, restaurant in enumerate(filtered_restaurants):
-            # Find the original restaurant to get missing fields
-            original_rest = next((r for r in restaurants if r["name"] == restaurant["name"]), None)
-            if not original_rest:
-                print(f"Warning: Could not find original data for restaurant: {restaurant.get('name', 'Unknown')}")
-                continue
-
-            # Validate and complete the restaurant data
-            validated_restaurant = {}
-            for field, expected_type in required_fields.items():
-                value = restaurant.get(field)
-                if value is None and original_rest.get(field) is not None:
-                    # Use original value if missing in filtered result
-                    value = original_rest[field]
-                
-                if not isinstance(value, expected_type):
-                    if field in original_rest:
-                        # Use original value if type is wrong
-                        value = original_rest[field]
-                    else:
-                        # Set default value if field is missing and not in original
-                        if field == "types":
-                            value = []
-                        elif field in ["rating", "user_ratings_total", "price_level"]:
-                            value = None
-                        else:
-                            print(f"Warning: Missing required field '{field}' for restaurant: {restaurant.get('name', 'Unknown')}")
-                            continue
-
-                validated_restaurant[field] = value
-
-            validated_restaurants.append(validated_restaurant)
-
-        if not validated_restaurants:
-            print("Warning: No valid restaurants after schema validation, using original list")
+        if not filtered_restaurants:
+            print("\nWARNING: No valid restaurants found after mapping, using original list")
             return restaurants[:MAX_FINAL_RESULTS]
 
-        print('success')
-        return validated_restaurants
+        print(f"\nSuccessfully filtered restaurants. Final count: {len(filtered_restaurants)}")
+        print("=== Restaurant Filtering Process Complete ===\n")
+        return filtered_restaurants
 
     except Exception as e:
-        print(f"Error in Vertex AI filtering: {str(e)}")
+        print(f"\nERROR in restaurant filtering: {str(e)}")
         print(f"Error type: {type(e)}")
         import traceback
         print("Traceback:")
         print(traceback.format_exc())
+        print("=== Restaurant Filtering Process Failed ===\n")
         # Return a fallback subset of restaurants
         return restaurants[:MAX_FINAL_RESULTS]
 
