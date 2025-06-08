@@ -80,7 +80,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         # Extract preferences
         food_preference = preferences.get("food_preference", "Surprise me, Choosee!")
         dietary_pref = preferences.get("dietary_preference", "Not choosy atm!")
-
+        
         def map_price_to_level(peso):
             if peso <= 0:
                 return 0
@@ -97,37 +97,32 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
 
         # Prepare structured input
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part(text="You are a restaurant recommendation engine."),
-                    types.Part(text="Given a list of restaurants and a user's preferences, select the TOP 10 that best match."),
-                    types.Part(text="Prioritize these ranking criteria:\n"
-                                     "1. Price level within user's budget\n"
-                                     "2. Cuisine matches or is close to user preference\n"
-                                     "3. Matches dietary needs\n"
-                                     "4. High ratings and many reviews\n"
-                                     "5. General reputation"),
-                    types.Part(text="User Preferences:"),
-                    types.Part(json={
-                        "cuisine_type": food_preference,
-                        "dietary_preference": dietary_pref,
-                        "max_price_level": price
-                    }),
-                    types.Part(text="Here are the candidate restaurants:"),
-                    types.Part(json=restaurants),
-                    types.Part(text="Return a JSON array of exactly 10 restaurants that best match the preferences."),
-                    types.Part(text="Only return valid JSON — no markdown, no comments.")
-                ]
-            )
-        ]
+        prompt_text = f"""You are a restaurant recommendation engine.
+Given a list of restaurants and a user's preferences, select the TOP 10 that best match.
 
-        print("Sending structured prompt to Vertex AI")
+Prioritize these ranking criteria:
+1. Price level within user's budget
+2. Cuisine matches or is close to user preference
+3. Matches dietary needs
+4. High ratings and many reviews
+5. General reputation
+
+User Preferences:
+- Cuisine Type: {food_preference}
+- Dietary Preference: {dietary_pref}
+- Max Price Level: {price}
+
+Here are the candidate restaurants:
+{json.dumps(restaurants, indent=2)}
+
+Return a JSON array of exactly 10 restaurants that best match the preferences.
+Only return valid JSON — no markdown, no comments."""
+
+        print("Sending prompt to Vertex AI")
 
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=contents
+            contents=prompt_text
         )
 
         raw_content = response.text.strip()
