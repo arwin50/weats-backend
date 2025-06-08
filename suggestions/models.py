@@ -13,7 +13,7 @@ class Location(models.Model):
     types = models.JSONField(null=True, blank=True)  # stores array of strings
     description = models.TextField(null=True, blank=True)
     recommendation_reason = models.TextField(null=True, blank=True)
-    photo_url = models.URLField(max_length=500, null=True, blank=True)
+    photo_url = models.URLField(max_length=1000, null=True, blank=True)
 
     def __str__(self):
         return self.name

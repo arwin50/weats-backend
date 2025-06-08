@@ -15,7 +15,7 @@ class VisitedLocation(models.Model):
     types = models.JSONField(null=True, blank=True)  # stores array of strings
     description = models.TextField(null=True, blank=True)   
     recommendation_reason = models.TextField(null=True, blank=True)
-    photo_url = models.URLField(null=True, blank=True)
+    photo_url = models.URLField(max_length=1000, null=True, blank=True)
     date_visited = models.DateTimeField(auto_now_add=True)
     notes = models.TextField(blank=True, null=True)
 
