@@ -80,7 +80,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         # Extract preferences
         food_preference = preferences.get("food_preference", "Surprise me, Choosee!")
         dietary_pref = preferences.get("dietary_preference", "Not choosy atm!")
-        
+
         def map_price_to_level(peso):
             if peso <= 0:
                 return 0
@@ -93,54 +93,62 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
             else:
                 return 4
 
+        # Convert preference price (in pesos) to price level
         raw_price = preferences.get("price", 1000)
         price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
 
-        # Prepare structured input
-        prompt_text = f"""You are a restaurant recommendation engine.
-Given a list of restaurants and a user's preferences, select the TOP 10 that best match.
+        # Construct the Gemini prompt
+        prompt = f"""
+You are a restaurant recommendation engine. Your task is to analyze a list of restaurants and select the TOP 10 that best match the user's preferences.
 
-Prioritize these ranking criteria:
-1. Price level within user's budget
-2. Cuisine matches or is close to user preference
-3. Matches dietary needs
-4. High ratings and many reviews
-5. General reputation
-
-User Preferences:
+## User Preferences
 - Cuisine Type: {food_preference}
 - Dietary Preference: {dietary_pref}
-- Max Price Level: {price}
+- Max Price Level: {price} (1=budget, 2=moderate, 3=expensive, 4=very expensive)
 
-Here are the candidate restaurants:
+## Restaurant Candidates
 {json.dumps(restaurants, indent=2)}
 
-Return a JSON array of exactly 10 restaurants that best match the preferences.
-Only return valid JSON — no markdown, no comments."""
+## Ranking Criteria (in priority order)
+1. Price level must be within or below the user's budget.
+2. Cuisine should match user preference (or be similar if no exact match).
+3. Must support user's dietary preferences.
+4. Higher-rated and more-reviewed restaurants are preferred.
+5. General quality and reputation.
 
-        print("Sending prompt to Vertex AI")
+## Output Format
+Return a **JSON array of exactly 10 restaurants**, ranked from best match to least match.  
+Each restaurant must preserve its original fields.
 
+**Only return valid JSON. Do not include explanations, markdown, or comments.**
+"""
+
+        print("Vertex prompt preferences:", preferences)
+
+        # Send the prompt to Vertex AI
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=prompt_text
+            contents=prompt
         )
 
         raw_content = response.text.strip()
         print(f"Raw Vertex AI response:\n{raw_content}")
 
-        # Clean and extract JSON
+        # Clean response: remove markdown block markers and trim whitespace
         if raw_content.startswith("```json"):
             raw_content = raw_content[7:]
         if raw_content.endswith("```"):
             raw_content = raw_content[:-3]
         raw_content = raw_content.strip()
 
+        # Find JSON array start and end positions
         start_index = raw_content.find('[')
         end_index = raw_content.rfind(']')
         if start_index == -1 or end_index == -1:
-            raise ValueError("Invalid JSON format: could not locate JSON array.")
+            raise ValueError("Invalid JSON format: could not locate JSON array brackets.")
 
         json_string = raw_content[start_index:end_index + 1]
+        print(f"Extracted JSON content:\n{json_string}")
 
         try:
             json_string = re.sub(r",\s*([\]}])", r"\1", json_string)
@@ -150,9 +158,10 @@ Only return valid JSON — no markdown, no comments."""
             print(f"Failed content:\n{json_string}")
             raise
 
+        # Validate structure
         if not isinstance(filtered_restaurants, list):
             raise ValueError(f"Expected list but got {type(filtered_restaurants)}")
-        
+
         if len(filtered_restaurants) > MAX_FINAL_RESULTS:
             filtered_restaurants = filtered_restaurants[:MAX_FINAL_RESULTS]
 
@@ -161,11 +170,12 @@ Only return valid JSON — no markdown, no comments."""
 
     except Exception as e:
         print(f"Error in Vertex AI filtering: {str(e)}")
+        print(f"Error type: {type(e)}")
         import traceback
         print("Traceback:")
         print(traceback.format_exc())
+        # Return a fallback subset of restaurants
         return restaurants[:MAX_FINAL_RESULTS]
-
 
 def search_restaurants(lat: float, lng: float, headers: dict, preferences: dict) -> list:
     """Search for restaurants in a specific area."""
@@ -309,11 +319,9 @@ def nearby_restaurants(request):
 
         location_dicts = []
         for rest in filtered_restaurants:
-            # Get the original restaurant data to access photos
-            original_rest = next((r for r in all_restaurants if r["name"] == rest["name"]), None)
             photo_url = None
-            if original_rest and original_rest.get("photos") and len(original_rest["photos"]) > 0:
-                photo_url = get_photo_url(original_rest["photos"][0].get("name"))
+            if rest.get("photos") and len(rest["photos"]) > 0:
+                photo_url = get_photo_url(rest["photos"][0].get("name"))
 
             location = Location(
                 name=rest["name"],
@@ -339,7 +347,7 @@ def nearby_restaurants(request):
                 "photo_url": photo_url,
             })
 
-            print("Photo URL for", location.name, ":", photo_url)
+            print("MEOW: ", location.photo_url)
 
         suggestion_data = {
             "user": request.user.username if request.user.is_authenticated else None,
