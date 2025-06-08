@@ -156,6 +156,7 @@ Only return valid JSON — no markdown, no comments."""
         if len(filtered_restaurants) > MAX_FINAL_RESULTS:
             filtered_restaurants = filtered_restaurants[:MAX_FINAL_RESULTS]
 
+        print('success')
         return filtered_restaurants
 
     except Exception as e:
@@ -308,9 +309,11 @@ def nearby_restaurants(request):
 
         location_dicts = []
         for rest in filtered_restaurants:
+            # Get the original restaurant data to access photos
+            original_rest = next((r for r in all_restaurants if r["name"] == rest["name"]), None)
             photo_url = None
-            if rest.get("photos") and len(rest["photos"]) > 0:
-                photo_url = get_photo_url(rest["photos"][0].get("name"))
+            if original_rest and original_rest.get("photos") and len(original_rest["photos"]) > 0:
+                photo_url = get_photo_url(original_rest["photos"][0].get("name"))
 
             location = Location(
                 name=rest["name"],
@@ -336,7 +339,7 @@ def nearby_restaurants(request):
                 "photo_url": photo_url,
             })
 
-            print("MEOW: ", location.photo_url)
+            print("Photo URL for", location.name, ":", photo_url)
 
         suggestion_data = {
             "user": request.user.username if request.user.is_authenticated else None,
