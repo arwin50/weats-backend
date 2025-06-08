@@ -1,4 +1,5 @@
 import os
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
@@ -120,3 +121,10 @@ def save_suggestions(request):
             "error": "Failed to fetch restaurants",
             "details": str(e)
         }, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_suggestions(request):
+    suggestions = Suggestion.objects.filter(user=request.user).order_by('-date_created').select_related("prompt")
+    serializer = SuggestionSerializer(suggestions, many=True)
+    return Response(serializer.data)
