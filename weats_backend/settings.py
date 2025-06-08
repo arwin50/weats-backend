@@ -21,12 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 dotenv.load_dotenv()
 
-if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in os.environ:
-    creds_json = os.environ["GOOGLE_APPLICATION_CREDENTIALS_JSON"]
-    temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
-    temp_path.write(creds_json.encode())
-    temp_path.close()
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path.name
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
