@@ -8,6 +8,20 @@ from google import genai
 from google.genai import types
 from suggestions.models import Prompt, Location, Suggestion
 from django.utils import timezone
+import base64
+
+# Decode the Base64 string stored in the environment variable
+encoded_credentials = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_BASE64")
+
+try:
+    decoded = base64.b64decode(encoded_credentials)
+    with open("credentials.json", "wb") as f:
+        f.write(decoded)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "credentials.json"
+    print("Credentials file written and environment variable set.")
+except Exception as e:
+    print("Failed to decode/write credentials file:", str(e))
+    raise
 
 vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")  # Default to us-central1 if not set
 project_id = os.getenv("VERTEX_PROJECT_ID")
