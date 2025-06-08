@@ -80,7 +80,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         # Extract preferences
         food_preference = preferences.get("food_preference", "Surprise me, Choosee!")
         dietary_pref = preferences.get("dietary_preference", "Not choosy atm!")
-
+        
         def map_price_to_level(peso):
             if peso <= 0:
                 return 0
@@ -93,6 +93,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
             else:
                 return 4
 
+     
         # Convert preference price (in pesos) to price level
         raw_price = preferences.get("price", 1000)
         price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
@@ -151,7 +152,15 @@ Each restaurant must preserve its original fields.
         print(f"Extracted JSON content:\n{json_string}")
 
         try:
-            json_string = re.sub(r",\s*([\]}])", r"\1", json_string)
+            # Clean up common JSON formatting issues
+            # Remove trailing commas before closing brackets
+            json_string = re.sub(r',\s*([}\]])', r'\1', json_string)
+            # Remove any comments
+            json_string = re.sub(r'//.*?$', '', json_string, flags=re.MULTILINE)
+            # Remove any whitespace between brackets
+            json_string = re.sub(r'\[\s*\]', '[]', json_string)
+            json_string = re.sub(r'{\s*}', '{}', json_string)
+            
             filtered_restaurants = json.loads(json_string)
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {str(e)}")
@@ -161,7 +170,7 @@ Each restaurant must preserve its original fields.
         # Validate structure
         if not isinstance(filtered_restaurants, list):
             raise ValueError(f"Expected list but got {type(filtered_restaurants)}")
-
+        
         if len(filtered_restaurants) > MAX_FINAL_RESULTS:
             filtered_restaurants = filtered_restaurants[:MAX_FINAL_RESULTS]
 
