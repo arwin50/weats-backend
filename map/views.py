@@ -80,7 +80,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         # Extract preferences
         food_preference = preferences.get("food_preference", "Surprise me, Choosee!")
         dietary_pref = preferences.get("dietary_preference", "Not choosy atm!")
-        
+
         def map_price_to_level(peso):
             if peso <= 0:
                 return 0
@@ -93,98 +93,68 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
             else:
                 return 4
 
-     
-        # Convert preference price (in pesos) to price level
         raw_price = preferences.get("price", 1000)
         price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
 
-        # Construct the Gemini prompt
-        prompt = f"""
-You are a restaurant recommendation engine. Your task is to analyze a list of restaurants and select the TOP 10 that best match the user's preferences.
+        # Prepare structured input
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(text="You are a restaurant recommendation engine."),
+                    types.Part(text="Given a list of restaurants and a user's preferences, select the TOP 10 that best match."),
+                    types.Part(text="Prioritize these ranking criteria:\n"
+                                     "1. Price level within user's budget\n"
+                                     "2. Cuisine matches or is close to user preference\n"
+                                     "3. Matches dietary needs\n"
+                                     "4. High ratings and many reviews\n"
+                                     "5. General reputation"),
+                    types.Part(text="User Preferences:"),
+                    types.Part(json={
+                        "cuisine_type": food_preference,
+                        "dietary_preference": dietary_pref,
+                        "max_price_level": price
+                    }),
+                    types.Part(text="Here are the candidate restaurants:"),
+                    types.Part(json=restaurants),
+                    types.Part(text="Return a JSON array of exactly 10 restaurants that best match the preferences."),
+                    types.Part(text="Only return valid JSON — no markdown, no comments.")
+                ]
+            )
+        ]
 
-## User Preferences
-- Cuisine Type: {food_preference}
-- Dietary Preference: {dietary_pref}
-- Max Price Level: {price} (1=budget, 2=moderate, 3=expensive, 4=very expensive)
+        print("Sending structured prompt to Vertex AI")
 
-## Restaurant Candidates
-{json.dumps(restaurants, indent=2)}
-
-## Ranking Criteria (in priority order)
-1. Price level must be within or below the user's budget.
-2. Cuisine should match user preference (or be similar if no exact match).
-3. Must support user's dietary preferences.
-4. Higher-rated and more-reviewed restaurants are preferred.
-5. General quality and reputation.
-
-## Output Format
-Return a **JSON array of exactly 10 restaurants**, ranked from best match to least match.  
-Each restaurant must preserve its original fields.
-
-**Only return valid JSON. Do not include explanations, markdown, or comments.**
-"""
-
-        print("Vertex prompt preferences:", preferences)
-
-        # Send the prompt to Vertex AI
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=prompt
+            contents=contents
         )
 
         raw_content = response.text.strip()
         print(f"Raw Vertex AI response:\n{raw_content}")
 
-        # Clean response: remove markdown block markers and trim whitespace
+        # Clean and extract JSON
         if raw_content.startswith("```json"):
             raw_content = raw_content[7:]
         if raw_content.endswith("```"):
             raw_content = raw_content[:-3]
         raw_content = raw_content.strip()
 
-        # Find JSON array start and end positions
         start_index = raw_content.find('[')
         end_index = raw_content.rfind(']')
         if start_index == -1 or end_index == -1:
-            raise ValueError("Invalid JSON format: could not locate JSON array brackets.")
+            raise ValueError("Invalid JSON format: could not locate JSON array.")
 
         json_string = raw_content[start_index:end_index + 1]
-        print(f"Extracted JSON content:\n{json_string}")
 
         try:
-            # Clean up common JSON formatting issues
-            # Remove control characters
-            json_string = ''.join(char for char in json_string if ord(char) >= 32 or char in '\n\r\t')
-            
-            # Remove trailing commas before closing brackets
-            json_string = re.sub(r',\s*([}\]])', r'\1', json_string)
-            
-            # Remove any comments
-            json_string = re.sub(r'//.*?$', '', json_string, flags=re.MULTILINE)
-            
-            # Remove any whitespace between brackets
-            json_string = re.sub(r'\[\s*\]', '[]', json_string)
-            json_string = re.sub(r'{\s*}', '{}', json_string)
-            
-            # Remove any non-printable characters
-            json_string = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', json_string)
-            
-            # Remove any BOM characters
-            json_string = json_string.replace('\ufeff', '')
-            
-            # Remove any null bytes
-            json_string = json_string.replace('\0', '')
-            
-            # Remove any invalid escape sequences
-            json_string = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_string)
-            
+            json_string = re.sub(r",\s*([\]}])", r"\1", json_string)
             filtered_restaurants = json.loads(json_string)
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {str(e)}")
             print(f"Failed content:\n{json_string}")
             raise
 
-        # Validate structure
         if not isinstance(filtered_restaurants, list):
             raise ValueError(f"Expected list but got {type(filtered_restaurants)}")
         
@@ -195,12 +165,11 @@ Each restaurant must preserve its original fields.
 
     except Exception as e:
         print(f"Error in Vertex AI filtering: {str(e)}")
-        print(f"Error type: {type(e)}")
         import traceback
         print("Traceback:")
         print(traceback.format_exc())
-        # Return a fallback subset of restaurants
         return restaurants[:MAX_FINAL_RESULTS]
+
 
 def search_restaurants(lat: float, lng: float, headers: dict, preferences: dict) -> list:
     """Search for restaurants in a specific area."""
