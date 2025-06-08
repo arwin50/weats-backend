@@ -1,1 +1,1 @@
-web: weats_backend.wsgi
+web: gunicorn weats_backend.wsgi
