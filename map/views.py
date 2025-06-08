@@ -74,10 +74,6 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
     """Filter restaurants using Vertex AI Gemini model based on user preferences."""
     try:
         if len(restaurants) <= MAX_FINAL_RESULTS:
-            for i, restaurant in enumerate(restaurants, 1):
-                restaurant["description"] = f"A {restaurant.get('types', ['restaurant'])[0].replace('_', ' ').title()} in {restaurant.get('address', 'the area')}."
-                restaurant["recommendation_reason"] = f"Selected based on your preferences for {preferences.get('food_preference', 'any cuisine')} and {preferences.get('dietary_preference', 'any dietary preference')}."
-                restaurant["rank"] = i
             return restaurants
 
         # Extract preferences
@@ -121,11 +117,8 @@ You are a restaurant recommendation engine. Your task is to analyze a list of re
 5. General quality and reputation.
 
 ## Output Format
-Return a **JSON array of exactly 10 restaurants**, ranked from best match (rank=1) to least match (rank=10).  
-Each restaurant must preserve its original fields and include the following additional keys:
-- "description": A short, engaging summary of the restaurant (1–2 sentences).
-- "recommendation_reason": A specific explanation of why this restaurant was selected.
-- "rank": An integer from 1 to 10 (1 = best match).
+Return a **JSON array of exactly 10 restaurants**, ranked from best match to least match.  
+Each restaurant must preserve its original fields.
 
 **Only output the final JSON array. Do not include any explanations, markdown, or additional text.**
 """
@@ -134,7 +127,7 @@ Each restaurant must preserve its original fields and include the following addi
 
         # Send request to Vertex AI
         response = client.models.generate_content(
-            model="gemini-2.5-pro-preview-05-06",
+            model="gemini-2.0-flash",
             contents=prompt
         )
 
@@ -173,8 +166,6 @@ Each restaurant must preserve its original fields and include the following addi
         if len(filtered_restaurants) > MAX_FINAL_RESULTS:
             filtered_restaurants = filtered_restaurants[:MAX_FINAL_RESULTS]
 
-        # Sort by rank and return
-        filtered_restaurants.sort(key=lambda x: x.get("rank", 10))
         return filtered_restaurants
 
     except Exception as e:
@@ -184,10 +175,6 @@ Each restaurant must preserve its original fields and include the following addi
         print(f"Traceback: {traceback.format_exc()}")
         
         # Fallback to basic filtering
-        for i, restaurant in enumerate(restaurants[:MAX_FINAL_RESULTS], 1):
-            restaurant["description"] = f"A {restaurant.get('types', ['restaurant'])[0].replace('_', ' ').title()} in {restaurant.get('address', 'the area')}."
-            restaurant["recommendation_reason"] = f"Selected based on your preferences for {preferences.get('food_preference', 'any cuisine')} and {preferences.get('dietary_preference', 'any dietary preference')}."
-            restaurant["rank"] = i
         return restaurants[:MAX_FINAL_RESULTS]
 
 def search_restaurants(lat: float, lng: float, headers: dict, preferences: dict) -> list:
@@ -345,8 +332,6 @@ def nearby_restaurants(request):
                 user_ratings_total=rest.get("user_ratings_total", 0),
                 price_level=rest.get("price_level", 1),
                 types=rest.get("types", []),
-                description=rest.get("description", ""),
-                recommendation_reason=rest.get("recommendation_reason", ""),
                 photo_url=photo_url
             )
 
@@ -359,8 +344,6 @@ def nearby_restaurants(request):
                 "user_ratings_total": location.user_ratings_total,
                 "price_level": location.price_level,
                 "types": location.types,
-                "description": location.description,
-                "recommendation_reason": location.recommendation_reason,
                 "photo_url": photo_url,
             })
 
