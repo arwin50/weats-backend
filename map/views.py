@@ -129,7 +129,6 @@ Each restaurant must preserve its original fields.
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=prompt
-            config={""}
         )
 
         raw_content = response.text.strip()
@@ -176,7 +175,6 @@ Each restaurant must preserve its original fields.
             "user_ratings_total": (int, type(None)),
             "price_level": (int, type(None)),
             "types": list,
-            "photos": list
         }
 
         validated_restaurants = []
@@ -202,8 +200,6 @@ Each restaurant must preserve its original fields.
                     else:
                         # Set default value if field is missing and not in original
                         if field == "types":
-                            value = []
-                        elif field == "photos":
                             value = []
                         elif field in ["rating", "user_ratings_total", "price_level"]:
                             value = None
