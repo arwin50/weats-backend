@@ -129,6 +129,7 @@ Each restaurant must preserve its original fields.
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=prompt
+            config={""}
         )
 
         raw_content = response.text.strip()
@@ -151,8 +152,8 @@ Each restaurant must preserve its original fields.
         print(f"Extracted JSON content:\n{json_string}")
 
         try:
-            json_string = re.sub(r",\s*([\]}])", r"\1", json_string)
             filtered_restaurants = json.loads(json_string)
+            print(filtered_restaurants)
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {str(e)}")
             print(f"Failed content:\n{json_string}")
