@@ -27,7 +27,7 @@ vertex_location = os.getenv("VERTEX_LOCATION", "us-central1")  # Default to us-c
 project_id = os.getenv("VERTEX_PROJECT_ID")
 use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "True")
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
-MAX_SEARCH_RESULTS = 50  # Get more results for filtering
+MAX_SEARCH_RESULTS = 30  # Get more results for filtering
 MAX_FINAL_RESULTS = 10   # Final number of recommendations
 SEARCH_RADIUS = 2000  # Increased radius to compensate for single search
 PLACES_API_URL = "https://places.googleapis.com/v1/places:searchText"
@@ -96,15 +96,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
             else:
                 return 4
 
-        # Map string levels from the restaurant data
-        STRING_TO_LEVEL = {
-            "PRICE_LEVEL_FREE": 0,
-            "PRICE_LEVEL_INEXPENSIVE": 1,
-            "PRICE_LEVEL_MODERATE": 2,
-            "PRICE_LEVEL_EXPENSIVE": 3,
-            "PRICE_LEVEL_VERY_EXPENSIVE": 4
-        }
-
+     
         # Convert preference price (in pesos) to price level
         raw_price = preferences.get("price", 1000)
         price = map_price_to_level(raw_price) if isinstance(raw_price, (int, float)) else 4
