@@ -80,7 +80,7 @@ def filter_restaurants_with_vertex(restaurants: list, preferences: dict) -> list
         # Extract preferences
         food_preference = preferences.get("food_preference", "Surprise me, Choosee!")
         dietary_pref = preferences.get("dietary_preference", "Not choosy atm!")
-
+        
         def map_price_to_level(peso):
             if peso <= 0:
                 return 0
@@ -161,12 +161,65 @@ Each restaurant must preserve its original fields.
         # Validate structure
         if not isinstance(filtered_restaurants, list):
             raise ValueError(f"Expected list but got {type(filtered_restaurants)}")
-
+        
         if len(filtered_restaurants) > MAX_FINAL_RESULTS:
             filtered_restaurants = filtered_restaurants[:MAX_FINAL_RESULTS]
 
+        # Validate each restaurant's schema
+        required_fields = {
+            "name": str,
+            "address": str,
+            "lat": (int, float),
+            "lng": (int, float),
+            "rating": (int, float, type(None)),
+            "user_ratings_total": (int, type(None)),
+            "price_level": (int, type(None)),
+            "types": list,
+            "photos": list
+        }
+
+        validated_restaurants = []
+        for i, restaurant in enumerate(filtered_restaurants):
+            # Find the original restaurant to get missing fields
+            original_rest = next((r for r in restaurants if r["name"] == restaurant["name"]), None)
+            if not original_rest:
+                print(f"Warning: Could not find original data for restaurant: {restaurant.get('name', 'Unknown')}")
+                continue
+
+            # Validate and complete the restaurant data
+            validated_restaurant = {}
+            for field, expected_type in required_fields.items():
+                value = restaurant.get(field)
+                if value is None and original_rest.get(field) is not None:
+                    # Use original value if missing in filtered result
+                    value = original_rest[field]
+                
+                if not isinstance(value, expected_type):
+                    if field in original_rest:
+                        # Use original value if type is wrong
+                        value = original_rest[field]
+                    else:
+                        # Set default value if field is missing and not in original
+                        if field == "types":
+                            value = []
+                        elif field == "photos":
+                            value = []
+                        elif field in ["rating", "user_ratings_total", "price_level"]:
+                            value = None
+                        else:
+                            print(f"Warning: Missing required field '{field}' for restaurant: {restaurant.get('name', 'Unknown')}")
+                            continue
+
+                validated_restaurant[field] = value
+
+            validated_restaurants.append(validated_restaurant)
+
+        if not validated_restaurants:
+            print("Warning: No valid restaurants after schema validation, using original list")
+            return restaurants[:MAX_FINAL_RESULTS]
+
         print('success')
-        return filtered_restaurants
+        return validated_restaurants
 
     except Exception as e:
         print(f"Error in Vertex AI filtering: {str(e)}")
